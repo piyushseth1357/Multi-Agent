@@ -1,0 +1,102 @@
+// DBML (Database Markup Language) for dbdiagram.io
+// Copy and paste this code directly into https://dbdiagram.io to visualize the ERD
+
+Project ai_software_team {
+  database_type: 'PostgreSQL (Supabase)'
+  Note: 'AI Software Team Multi-Agent Platform Database Schema with Row Level Security'
+}
+
+Table users {
+  id uuid [pk, note: 'References Supabase auth.users']
+  email varchar
+  created_at timestamptz
+}
+
+Table conversations {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, ref: > users.id, note: 'Owner of the chat']
+  title text [not null, default: 'New chat']
+  language text [default: 'auto']
+  is_deleted boolean [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, updated_at) [name: 'idx_conversations_user_updated']
+  }
+}
+
+Table messages {
+  id uuid [pk, default: `gen_random_uuid()`]
+  conversation_id uuid [not null, ref: > conversations.id]
+  user_id uuid [not null, ref: > users.id]
+  role text [not null, note: 'user, assistant, or system']
+  content text [not null]
+  language text
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (conversation_id, created_at) [name: 'idx_messages_conversation_created']
+  }
+}
+
+Table attachments {
+  id uuid [pk, default: `gen_random_uuid()`]
+  message_id uuid [not null, ref: > messages.id]
+  user_id uuid [not null, ref: > users.id]
+  storage_path text [not null]
+  mime_type text [not null]
+  size_bytes integer [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table pipeline_runs {
+  id uuid [pk, default: `gen_random_uuid()`]
+  conversation_id uuid [not null, ref: > conversations.id]
+  user_id uuid [not null, ref: > users.id]
+  user_prompt text [not null]
+  project_type text [not null, default: 'fullstack', note: 'frontend_only, fullstack, backend_only']
+  status text [not null, note: 'queued, running, done, failed']
+  state jsonb [not null, default: '{}']
+  created_at timestamptz [not null, default: `now()`]
+  finished_at timestamptz
+
+  indexes {
+    (user_id, created_at) [name: 'idx_runs_user_created']
+  }
+}
+
+Table agent_outputs {
+  id uuid [pk, default: `gen_random_uuid()`]
+  run_id uuid [not null, ref: > pipeline_runs.id]
+  agent_name text [not null, note: 'planner, architect, db_designer, api_designer, etc.']
+  attempt integer [not null, default: 1]
+  output jsonb
+  provider text [note: 'groq, gemini, openrouter']
+  model text
+  tokens_in integer
+  tokens_out integer
+  latency_ms integer
+  status text [not null, note: 'ok, invalid, error, skipped']
+  error text
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (run_id, agent_name) [name: 'idx_outputs_run_agent']
+  }
+}
+
+Table project_files {
+  id uuid [pk, default: `gen_random_uuid()`]
+  run_id uuid [not null, ref: > pipeline_runs.id]
+  user_id uuid [not null, ref: > users.id]
+  file_path text [not null, note: 'e.g. src/components/Header.tsx']
+  language text [not null]
+  content text [not null]
+  size_bytes integer [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (run_id, file_path) [name: 'idx_files_run_path']
+  }
+}
