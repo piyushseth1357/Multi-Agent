@@ -8,12 +8,22 @@ from ..schemas.agent_schemas import (
     UIDesignOutput,
     CodeOutput,
     TestOutput,
-    ReviewOutput
+    ReviewOutput,
+    ChatResponseOutput,
+    ImageGenerationOutput
 )
 
 class IntentClassifierAgent(BaseAgent[IntentClassifierOutput]):
     def __init__(self):
         super().__init__(name="intent_classifier", schema_class=IntentClassifierOutput)
+
+class ChatAssistantAgent(BaseAgent[ChatResponseOutput]):
+    def __init__(self):
+        super().__init__(name="chat_assistant", schema_class=ChatResponseOutput)
+
+class ImageGeneratorAgent(BaseAgent[ImageGenerationOutput]):
+    def __init__(self):
+        super().__init__(name="image_generator", schema_class=ImageGenerationOutput)
 
 class PlannerAgent(BaseAgent[PlannerOutput]):
     def __init__(self):

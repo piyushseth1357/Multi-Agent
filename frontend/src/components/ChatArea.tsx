@@ -16,10 +16,26 @@ import {
   Bot,
   User as UserIcon,
   Copy,
-  Check
+  Check,
+  Download
 } from 'lucide-react';
 import { Message, AgentActivityEvent, Conversation } from '../types';
 import { apiFetch } from '../lib/api';
+
+const AGENT_LABELS: Record<string, string> = {
+  intent_classifier: 'Intent Director',
+  chat_assistant: 'AI Coding Mentor',
+  image_generator: 'Visual Image Studio (FLUX)',
+  planner: 'Product Planner',
+  architect: 'Software Architect',
+  db_designer: 'Database Designer',
+  api_designer: 'API Designer',
+  ui_designer: 'UI/UX Designer',
+  backend_dev: 'Backend Engineer',
+  frontend_dev: 'Frontend Engineer',
+  tester: 'QA & Security Tester',
+  reviewer: 'Principal Code Reviewer'
+};
 
 interface ChatAreaProps {
   conversation: Conversation | null;
@@ -68,7 +84,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               {
                 id: 'welcome',
                 role: 'assistant',
-                content: `👋 Namaste! Main aapka **AI Software Team Studio** hoon.\n\nAap mujhe koi bhi idea bata sakte hain jaise:\n- *"Build a hospital patient appointment management system"*\n- *"Create a modern portfolio website for a developer (frontend only)"*\n\nMain intelligent pipeline se plan, architecture, code files aur live preview generate kar dunga!`,
+                content: `👋 Namaste! Main aapka **AI Software Team Studio** hoon.\n\nAap mujhe kisi bhi tarah use kar sakte hain:\n- 💬 **Normal / Programming Chat**: *"React me useEffect kaise kaam karta hai?"* ya *"Is Python error ko fix karo"*\n- 🏗️ **Full Project / Website Builder**: *"Build a hospital appointment system"* ya *"Ek modern portfolio website banao (frontend only)"*\n- 🎨 **Free AI Image Generator**: *"Ek glowing neon tech logo ki image banao"*\n\nMain automatically sahi AI agents chalaunga aur unnecessary agents ko skip karke aapke tokens bachaunga!`,
                 created_at: new Date().toISOString()
               }
             ]);
@@ -171,6 +187,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     const userText = prompt.trim();
     const displayContent = userText + (attachmentName ? `\n\n📎 Attached: ${attachmentName}` : '');
     const contextText = attachmentsText;
+    const recentHistory = messages
+      .filter(m => m.id !== 'welcome')
+      .slice(-6)
+      .map(m => ({ role: m.role, content: m.content }));
 
     setPrompt('');
     setAttachmentName(null);
@@ -195,6 +215,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           user_prompt: userText,
           conversation_id: conversation?.id,
           attachments_text: contextText,
+          chat_history: recentHistory,
           force_provider: selectedModel === 'auto' ? null : selectedModel
         })
       });
@@ -203,7 +224,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       }
       const runData = await runRes.json();
       const runId = runData.run_id;
-      setActiveProjectId(runId);
 
       const eventSource = new EventSource(
         `/api/runs/${runId}/stream?force_provider=${selectedModel === 'auto' ? '' : selectedModel}`
@@ -217,7 +237,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       eventSource.addEventListener('agent_done', (e: any) => {
         const data = JSON.parse(e.data);
         setAgentActivities(prev =>
-          prev.map(a => (a.agent === data.agent ? { ...a, status: 'done', output: data.output } : a))
+          prev.map(a =>
+            a.agent === data.agent
+              ? { ...a, status: 'done', provider: data.provider, model: data.model, output: data.output }
+              : a
+          )
         );
       });
 
@@ -231,12 +255,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         eventSource.close();
         setRunning(false);
 
-        const aiContent = `✅ **Architecture Blueprint & Starter Code Ready!**\n\nAll requested modules have been processed by the autonomous multi-agent pipeline.\n- **Files Written**: ${data.written_paths?.length || 0} files generated in project workspace.\n- **Project ID**: \`${data.run_id}\`\n\nAap **Live Preview** ya **Workspace Files** par click karke apni banti hui application ko inspect, GitHub par push, ya ZIP download kar sakte hain!`;
+        let aiContent = '';
+        if (data.chat_reply) {
+          aiContent = data.chat_reply;
+        } else {
+          setActiveProjectId(data.run_id);
+          aiContent = `✅ **Architecture Blueprint & Starter Code Ready!**\n\nAll requested modules have been processed by the autonomous multi-agent pipeline.\n- **Files Written**: ${data.written_paths?.length || 0} files generated in project workspace.\n- **Project ID**: \`${data.run_id}\`\n\nAap **Live Preview** ya **Workspace Files** par click karke apni banti hui application ko inspect, GitHub par push, ya ZIP download kar sakte hain!`;
+        }
 
         const aiMsg: Message = {
           id: 'ai_' + Date.now(),
           role: 'assistant',
           content: aiContent,
+          image_url: data.image_url,
           created_at: new Date().toISOString()
         };
         setMessages(prev => [...prev, aiMsg]);
@@ -253,7 +284,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             if (parsed.error) errText = parsed.error;
           }
         } catch {
-          // Default message above applies on transport drop
+          // Transport-level SSE close fallback
         }
 
         const errMsg: Message = {
@@ -304,7 +335,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <option value="auto" className="bg-surface-800 text-white">⚡ Auto Switch (Smart Router)</option>
               <option value="groq" className="bg-surface-800 text-white">Groq (Llama 3.3 70B - Fast)</option>
               <option value="gemini" className="bg-surface-800 text-white">Google Gemini 2.5 Flash</option>
-              <option value="openrouter" className="bg-surface-800 text-white">OpenRouter Free Models</option>
+              <option value="openrouter" className="bg-surface-800 text-white">OpenRouter Free Router</option>
             </select>
           </div>
 
@@ -350,6 +381,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             >
               <div className="whitespace-pre-wrap">{msg.content}</div>
 
+              {msg.image_url && (
+                <div className="mt-3 rounded-xl overflow-hidden border border-slate-700/80 bg-surface-950">
+                  <img
+                    src={msg.image_url}
+                    alt="AI Generated Visual"
+                    className="w-full max-h-96 object-contain"
+                  />
+                  <div className="p-2 flex justify-end bg-surface-900/90 border-t border-slate-800">
+                    <a
+                      href={msg.image_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      download="ai-generated-image.png"
+                      className="text-[11px] text-brand-300 hover:text-brand-200 flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Open / Download Image
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {msg.role === 'assistant' && (
                 <div className="mt-3 pt-2 border-t border-slate-700/50 flex items-center justify-between text-slate-400">
                   <span className="text-[10px] text-slate-500">Autonomous AI Team</span>
@@ -390,14 +443,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               >
                 <div className="flex items-center gap-2">
                   <Layers className="w-4 h-4 text-brand-400" />
-                  <span>Agent Pipeline Activity ({agentActivities.length} events)</span>
+                  <span>Active AI Agents ({agentActivities.length})</span>
                   {running && <span className="w-2 h-2 rounded-full bg-brand-400 animate-ping ml-1" />}
                 </div>
                 {showAgentDrawer ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </button>
 
               {showAgentDrawer && (
-                <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pt-2 border-t border-slate-800">
+                <div className="mt-3 space-y-2 max-h-56 overflow-y-auto pt-2 border-t border-slate-800">
                   {agentActivities.map((act, idx) => (
                     <div
                       key={idx}
@@ -407,9 +460,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         {act.status === 'done' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                         {act.status === 'started' && <span className="w-3 h-3 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />}
                         {act.status === 'skipped' && <SkipForward className="w-3.5 h-3.5 text-amber-400" />}
-                        <span className="font-mono uppercase text-[11px] text-slate-300">{act.agent.replace('_', ' ')}</span>
+                        <span className="font-medium text-slate-200">
+                          {AGENT_LABELS[act.agent] || act.agent}
+                        </span>
+                        {act.provider && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-300 border border-brand-500/20">
+                            {act.provider}
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[10px] text-slate-500">
+                      <span className="text-[10px] text-slate-400">
                         {act.status === 'skipped' ? `Skipped (${act.reason || 'Not required'})` : act.status}
                       </span>
                     </div>
@@ -476,7 +536,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendPrompt()}
-              placeholder={isRecording ? 'Listening to your voice...' : 'Ask your AI Software Team... (e.g. Build a hospital appointment system)'}
+              placeholder={isRecording ? 'Listening to your voice...' : 'Chat, ask coding help, generate images, or build an app...'}
               className="flex-1 bg-transparent px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
             />
 

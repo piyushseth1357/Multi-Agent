@@ -3,12 +3,16 @@ from openai import AsyncOpenAI
 from .base import BaseLLMProvider, ProviderResponse
 
 class OpenRouterProvider(BaseLLMProvider):
-    def __init__(self, api_key: str, default_model: str = "meta-llama/llama-3.1-8b-instruct:free"):
+    def __init__(self, api_key: str, default_model: str = "openrouter/free"):
         super().__init__(name="openrouter", default_model=default_model, api_key=api_key)
         self.client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key or "missing_key",
-            timeout=60.0
+            timeout=60.0,
+            default_headers={
+                "HTTP-Referer": "http://localhost:5173",
+                "X-Title": "AI Software Team Studio",
+            },
         )
 
     async def generate(

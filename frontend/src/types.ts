@@ -15,6 +15,7 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  image_url?: string;
   language?: string;
   created_at: string;
 }
@@ -28,6 +29,8 @@ export interface ProjectFile {
 export interface AgentActivityEvent {
   agent: string;
   status: 'started' | 'done' | 'skipped';
+  provider?: string;
+  model?: string;
   reason?: string;
   output?: any;
   loop?: number;

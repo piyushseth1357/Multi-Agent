@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
     OPENROUTER_API_KEY: str = ""
-    OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
+    OPENROUTER_MODEL: str = "openrouter/free"
 
     # Supabase (Auth, Postgres, Storage)
     SUPABASE_URL: str = ""

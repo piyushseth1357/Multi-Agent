@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal
 from .agent_schemas import (
     IntentClassifierOutput,
@@ -9,7 +9,9 @@ from .agent_schemas import (
     UIDesignOutput,
     CodeOutput,
     TestOutput,
-    ReviewOutput
+    ReviewOutput,
+    ChatResponseOutput,
+    ImageGenerationOutput
 )
 
 class PipelineState(BaseModel):
@@ -17,11 +19,16 @@ class PipelineState(BaseModel):
     user_prompt: str
     language: str = "auto"
     attachments_text: str = ""
-    
+    chat_history: list[dict] = Field(default_factory=list)
+
     # Adaptive routing
     intent: IntentClassifierOutput | None = None
-    
-    # Agent Artifacts (All Optional to support dynamic skipping!)
+
+    # Fast single-agent paths
+    chat_response: ChatResponseOutput | None = None
+    image_result: ImageGenerationOutput | None = None
+
+    # Software Team Agent Artifacts (All Optional to support dynamic skipping!)
     plan: PlannerOutput | None = None
     architecture: ArchitectOutput | None = None
     db_design: DBDesignOutput | None = None
@@ -31,9 +38,9 @@ class PipelineState(BaseModel):
     frontend: CodeOutput | None = None
     tests: TestOutput | None = None
     review: ReviewOutput | None = None
-    
+
     # Execution Tracking
-    review_loops: int = 0  # Hard capped at MAX_REVIEW_LOOPS (2)
+    review_loops: int = 0
     status: Literal["queued", "running", "done", "failed"] = "queued"
     error_message: str | None = None
 
@@ -47,8 +54,14 @@ class PipelineState(BaseModel):
             "language": self.language,
             "attachments_text": self.attachments_text
         }
-        
+
         if agent_name == "intent_classifier":
+            return base
+
+        if agent_name == "chat_assistant":
+            return {**base, "recent_history": self.chat_history[-6:]}
+
+        if agent_name == "image_generator":
             return base
 
         if agent_name == "planner":
@@ -98,7 +111,6 @@ class PipelineState(BaseModel):
             }
 
         if agent_name == "reviewer":
-            # Reviewer inspects everything that was actually generated
             return self.model_dump(exclude_none=True)
 
         return base

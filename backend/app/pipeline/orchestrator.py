@@ -1,10 +1,13 @@
 import asyncio
 import logging
+from urllib.parse import quote
 from typing import AsyncGenerator
 from ..schemas.pipeline_state import PipelineState
 from ..schemas.agent_schemas import CodeFile
 from ..agents.specialized import (
     IntentClassifierAgent,
+    ChatAssistantAgent,
+    ImageGeneratorAgent,
     PlannerAgent,
     ArchitectAgent,
     DBDesignerAgent,
@@ -19,9 +22,12 @@ from .file_writer import file_writer
 
 logger = logging.getLogger("orchestrator")
 
+
 class PipelineOrchestrator:
     def __init__(self):
         self.classifier = IntentClassifierAgent()
+        self.chat_assistant = ChatAssistantAgent()
+        self.image_generator = ImageGeneratorAgent()
         self.planner = PlannerAgent()
         self.architect = ArchitectAgent()
         self.db_designer = DBDesignerAgent()
@@ -38,24 +44,29 @@ class PipelineOrchestrator:
         force_provider: str | None = None
     ) -> AsyncGenerator[dict, None]:
         """
-        Executes the autonomous multi-agent pipeline with dynamic skipping and streaming SSE events.
+        Executes the autonomous multi-agent pipeline:
+        - general_chat: fast single-agent programming & conversation mode
+        - image_generation: visual prompt engineering + free FLUX image creation
+        - software project modes: adaptive multi-agent pipeline with dynamic skipping & atomic file output
         """
         state.status = "running"
         yield {"event": "run_started", "data": {"run_id": state.run_id, "user_prompt": state.user_prompt}}
 
         # ==========================================
-        # Step 0: Dynamic Intent Classification (Skip Logic)
+        # Step 0: Dynamic Intent Classification
         # ==========================================
         yield {"event": "agent_started", "data": {"agent": "intent_classifier"}}
         ctx = state.get_token_optimized_context_for_agent("intent_classifier")
-        state.intent, _ = await self.classifier.execute(ctx, force_provider=force_provider)
-        
+        state.intent, meta = await self.classifier.execute(ctx, force_provider=force_provider)
+
         needed = set(state.intent.needed_agents)
         skipped = state.intent.skipped_agents
         yield {
             "event": "agent_done",
             "data": {
                 "agent": "intent_classifier",
+                "provider": meta.provider,
+                "model": meta.model,
                 "output": state.intent.model_dump(),
                 "skipped_agents": skipped,
                 "project_type": state.intent.project_type
@@ -63,31 +74,96 @@ class PipelineOrchestrator:
         }
 
         # ==========================================
-        # Step 1: Planner
+        # Fast Path A: Conversational & Programming Chat
         # ==========================================
+        if state.intent.project_type == "general_chat" or "chat_assistant" in needed:
+            yield {"event": "agent_started", "data": {"agent": "chat_assistant"}}
+            chat_ctx = state.get_token_optimized_context_for_agent("chat_assistant")
+            state.chat_response, chat_meta = await self.chat_assistant.execute(chat_ctx, force_provider=force_provider)
+            yield {
+                "event": "agent_done",
+                "data": {
+                    "agent": "chat_assistant",
+                    "provider": chat_meta.provider,
+                    "model": chat_meta.model,
+                    "output": state.chat_response.model_dump()
+                }
+            }
+            state.status = "done"
+            yield {
+                "event": "run_done",
+                "data": {
+                    "run_id": state.run_id,
+                    "mode": "general_chat",
+                    "status": "done",
+                    "chat_reply": state.chat_response.reply,
+                    "written_paths": []
+                }
+            }
+            return
+
+        # ==========================================
+        # Fast Path B: Free AI Image Generation
+        # ==========================================
+        if state.intent.project_type == "image_generation" or "image_generator" in needed:
+            yield {"event": "agent_started", "data": {"agent": "image_generator"}}
+            img_ctx = state.get_token_optimized_context_for_agent("image_generator")
+            state.image_result, img_meta = await self.image_generator.execute(img_ctx, force_provider=force_provider)
+
+            encoded_prompt = quote(state.image_result.refined_prompt)
+            state.image_result.image_url = f"https://gen.pollinations.ai/image/{encoded_prompt}?model=flux&width=1024&height=1024"
+
+            yield {
+                "event": "agent_done",
+                "data": {
+                    "agent": "image_generator",
+                    "provider": img_meta.provider,
+                    "model": img_meta.model,
+                    "output": state.image_result.model_dump()
+                }
+            }
+            state.status = "done"
+            yield {
+                "event": "run_done",
+                "data": {
+                    "run_id": state.run_id,
+                    "mode": "image_generation",
+                    "status": "done",
+                    "chat_reply": f"{state.image_result.explanation}\n\n**Visual Prompt:** _{state.image_result.refined_prompt}_",
+                    "image_url": state.image_result.image_url,
+                    "written_paths": []
+                }
+            }
+            return
+
+        # ==========================================
+        # Software Engineering Pipeline
+        # ==========================================
+        # Step 1: Planner
         if "planner" in needed:
             yield {"event": "agent_started", "data": {"agent": "planner"}}
             ctx = state.get_token_optimized_context_for_agent("planner")
-            state.plan, _ = await self.planner.execute(ctx, force_provider=force_provider)
-            yield {"event": "agent_done", "data": {"agent": "planner", "output": state.plan.model_dump()}}
+            state.plan, p_meta = await self.planner.execute(ctx, force_provider=force_provider)
+            yield {
+                "event": "agent_done",
+                "data": {"agent": "planner", "provider": p_meta.provider, "model": p_meta.model, "output": state.plan.model_dump()}
+            }
         else:
             yield {"event": "agent_skipped", "data": {"agent": "planner", "reason": "Not required by project type"}}
 
-        # ==========================================
         # Step 2: Architect
-        # ==========================================
         if "architect" in needed:
             yield {"event": "agent_started", "data": {"agent": "architect"}}
             ctx = state.get_token_optimized_context_for_agent("architect")
-            state.architecture, _ = await self.architect.execute(ctx, force_provider=force_provider)
-            yield {"event": "agent_done", "data": {"agent": "architect", "output": state.architecture.model_dump()}}
+            state.architecture, a_meta = await self.architect.execute(ctx, force_provider=force_provider)
+            yield {
+                "event": "agent_done",
+                "data": {"agent": "architect", "provider": a_meta.provider, "model": a_meta.model, "output": state.architecture.model_dump()}
+            }
         else:
             yield {"event": "agent_skipped", "data": {"agent": "architect", "reason": "Not required"}}
 
-        # ==========================================
         # Step 3: Parallel Group 1 (DB, API, UI Designers)
-        # Only run agents specified in needed_agents!
-        # ==========================================
         parallel_group_1_tasks = []
         task_names_1 = []
 
@@ -120,18 +196,20 @@ class PipelineOrchestrator:
 
         if parallel_group_1_tasks:
             results_1 = await asyncio.gather(*parallel_group_1_tasks)
-            for name, (output, _) in zip(task_names_1, results_1):
+            for name, (output, res_meta) in zip(task_names_1, results_1):
                 if name == "db_designer":
                     state.db_design = output
                 elif name == "api_designer":
                     state.api_design = output
                 elif name == "ui_designer":
                     state.ui_design = output
-                yield {"event": "agent_done", "data": {"agent": name, "output": output.model_dump()}}
+                yield {
+                    "event": "agent_done",
+                    "data": {"agent": name, "provider": res_meta.provider, "model": res_meta.model, "output": output.model_dump()}
+                }
 
-        # Execute Code Generation & Review Loop (Max 2 iterations)
+        # Step 4: Parallel Group 2 (Backend Dev, Frontend Dev) + Review Loop (Max 2)
         while state.review_loops <= 2:
-            # Code dev step
             tasks_2 = []
             names_2 = []
             if "backend_dev" in needed and (state.review_loops == 0 or (state.review and "backend_dev" in state.review.send_back_to)):
@@ -150,24 +228,31 @@ class PipelineOrchestrator:
 
             if tasks_2:
                 results_2 = await asyncio.gather(*tasks_2)
-                for name, (output, _) in zip(names_2, results_2):
+                for name, (output, code_meta) in zip(names_2, results_2):
                     if name == "backend_dev":
                         state.backend = output
                     elif name == "frontend_dev":
                         state.frontend = output
-                    yield {"event": "agent_done", "data": {"agent": name, "output": output.model_dump()}}
+                    yield {
+                        "event": "agent_done",
+                        "data": {"agent": name, "provider": code_meta.provider, "model": code_meta.model, "output": output.model_dump()}
+                    }
 
-            # Tester
             if "tester" in needed and state.review_loops == 0:
                 yield {"event": "agent_started", "data": {"agent": "tester"}}
-                state.tests, _ = await self.tester.execute(state.get_token_optimized_context_for_agent("tester"), force_provider)
-                yield {"event": "agent_done", "data": {"agent": "tester", "output": state.tests.model_dump()}}
+                state.tests, t_meta = await self.tester.execute(state.get_token_optimized_context_for_agent("tester"), force_provider)
+                yield {
+                    "event": "agent_done",
+                    "data": {"agent": "tester", "provider": t_meta.provider, "model": t_meta.model, "output": state.tests.model_dump()}
+                }
 
-            # Reviewer
             if "reviewer" in needed:
                 yield {"event": "agent_started", "data": {"agent": "reviewer", "loop": state.review_loops}}
-                state.review, _ = await self.reviewer.execute(state.get_token_optimized_context_for_agent("reviewer"), force_provider)
-                yield {"event": "agent_done", "data": {"agent": "reviewer", "output": state.review.model_dump()}}
+                state.review, r_meta = await self.reviewer.execute(state.get_token_optimized_context_for_agent("reviewer"), force_provider)
+                yield {
+                    "event": "agent_done",
+                    "data": {"agent": "reviewer", "provider": r_meta.provider, "model": r_meta.model, "output": state.review.model_dump()}
+                }
 
                 if state.review.approved or state.review_loops >= 2 or not state.review.send_back_to:
                     break
@@ -177,9 +262,7 @@ class PipelineOrchestrator:
             else:
                 break
 
-        # ==========================================
         # Step 5: Sandboxed Physical File Creation
-        # ==========================================
         files_to_write: list[CodeFile] = []
         if state.backend and state.backend.files:
             files_to_write.extend(state.backend.files)
@@ -212,10 +295,12 @@ class PipelineOrchestrator:
             "event": "run_done",
             "data": {
                 "run_id": state.run_id,
+                "mode": state.intent.project_type,
                 "status": "done",
                 "written_paths": written_paths,
                 "project_tree": file_writer.list_project_tree(state.run_id)
             }
         }
+
 
 orchestrator = PipelineOrchestrator()

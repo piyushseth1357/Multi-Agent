@@ -19,6 +19,7 @@ class CreateRunRequest(BaseModel):
     conversation_id: str | None = None
     language: str = "auto"
     attachments_text: str = ""
+    chat_history: list[dict] = []
     force_provider: str | None = None  # None for Auto Mode, or 'groq', 'gemini', 'openrouter'
 
 class CreateRunResponse(BaseModel):
@@ -38,7 +39,8 @@ async def create_run(
         run_id=run_id,
         user_prompt=req.user_prompt,
         language=req.language,
-        attachments_text=req.attachments_text
+        attachments_text=req.attachments_text,
+        chat_history=req.chat_history
     )
     active_runs[run_id] = state
 

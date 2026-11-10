@@ -5,8 +5,16 @@ from typing import Literal
 # 0. INTENT CLASSIFIER (Dynamic Adaptive Pipeline)
 # ==========================================
 class IntentClassifierOutput(BaseModel):
-    project_type: Literal["frontend_only", "backend_only", "fullstack", "database_only", "landing_page"] = Field(
-        description="The architectural scope of the project based on the prompt."
+    project_type: Literal[
+        "general_chat",
+        "image_generation",
+        "frontend_only",
+        "backend_only",
+        "fullstack",
+        "database_only",
+        "landing_page"
+    ] = Field(
+        description="The architectural scope or conversational/image mode based on the prompt."
     )
     needed_agents: list[str] = Field(
         description="List of agent names required for this prompt. Agents not in this list will be safely skipped to save tokens."
@@ -133,3 +141,19 @@ class ReviewOutput(BaseModel):
     issues: list[Issue]
     send_back_to: list[str] = Field(default_factory=list)  # e.g. ["backend_dev", "frontend_dev"]
     summary: str
+
+# ==========================================
+# 10. GENERAL CHAT & CODING MENTOR AGENT
+# ==========================================
+class ChatResponseOutput(BaseModel):
+    reply: str = Field(description="Helpful, accurate markdown response matching the user's language (Hindi/Hinglish/English). Include formatted code blocks if answering a programming question.")
+    detected_language: str = Field(default="auto")
+
+# ==========================================
+# 11. IMAGE GENERATOR AGENT (Free FLUX via Pollinations)
+# ==========================================
+class ImageGenerationOutput(BaseModel):
+    refined_prompt: str = Field(description="Rich, detailed English image generation prompt describing style, lighting, and subject.")
+    explanation: str = Field(description="Short friendly message to the user in their language explaining the generated image.")
+    image_url: str = Field(default="")
+

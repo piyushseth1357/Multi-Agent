@@ -18,7 +18,11 @@ class GeminiProvider(BaseLLMProvider):
         start_time = time.perf_counter()
         target_model = model or self.default_model
 
-        url = f"{self.base_url}/{target_model}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/{target_model}:generateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key
+        }
 
         payload = {
             "contents": [
@@ -36,7 +40,7 @@ class GeminiProvider(BaseLLMProvider):
             payload["generationConfig"]["responseMimeType"] = "application/json"
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            res = await client.post(url, json=payload)
+            res = await client.post(url, headers=headers, json=payload)
             res.raise_for_status()
             data = res.json()
 
